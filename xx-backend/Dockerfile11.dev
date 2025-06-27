@@ -1,0 +1,24 @@
+FROM golang:1.21-alpine
+
+# 安装必要的包
+RUN apk add --no-cache git ca-certificates tzdata wget
+
+WORKDIR /app
+
+# 复制go mod文件
+COPY go.mod go.sum ./
+
+# 下载依赖
+RUN go mod download
+
+# 安装air用于热重载
+RUN go install github.com/cosmtrek/air@latest
+
+# 复制源代码
+COPY . .
+
+# 暴露端口
+EXPOSE 8080 50051
+
+# 使用air启动应用（支持热重载）
+CMD ["air"] 

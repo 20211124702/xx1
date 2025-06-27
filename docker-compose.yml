@@ -1,0 +1,165 @@
+version: '3.8'
+
+services:
+  # MySQL数据库 - 使用阿里云镜像
+  mysql:
+    image: registry.openanolis.cn/openanolis/mysql:8.0.30-8.6
+    container_name: xx-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: xx_admin
+      MYSQL_USER: xx_user
+      MYSQL_PASSWORD: xx_pass123
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - xx-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Redis缓存 - 使用阿里云镜像
+  redis:
+    image: registry.openanolis.cn/openanolis/redis:5.0.3-8.6
+    container_name: xx-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - xx-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      timeout: 20s
+      retries: 10
+
+  # Zookeeper服务
+  zookeeper:
+    image: daocloud.io/library/confluentinc/cp-zookeeper:7.4.0
+    container_name: xx-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+    networks:
+      - xx-network
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
+      timeout: 20s
+      retries: 10
+
+  # Kafka服务
+  kafka:
+    image: daocloud.io/library/cp-kafka:7.4.0
+    container_name: xx-kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "9101:9101"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - xx-network
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      timeout: 30s
+      retries: 10
+
+  # 后端服务
+  backend:
+    build:
+      context: ./xx-backend
+      dockerfile: Dockerfile
+    container_name: xx-backend
+    restart: unless-stopped
+    environment:
+      - APP_MODE=production
+      - APP_PORT=8080
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=xx_user
+      - MYSQL_PASSWORD=xx_pass123
+      - MYSQL_DATABASE=xx_admin
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+      - KAFKA_BROKERS=kafka:29092
+      - KAFKA_TOPIC_USER_EVENTS=user_events
+      - KAFKA_TOPIC_SYSTEM_LOGS=system_logs
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - xx-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      timeout: 20s
+      retries: 10
+
+  # 前端服务（包含nginx）
+  frontend:
+    build:
+      context: ./xx-admin
+      dockerfile: Dockerfile
+    container_name: xx-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - xx-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      timeout: 20s
+      retries: 10
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+  zookeeper_data:
+    driver: local
+  zookeeper_logs:
+    driver: local
+  kafka_data:
+    driver: local
+
+networks:
+  xx-network:
+    driver: bridge 

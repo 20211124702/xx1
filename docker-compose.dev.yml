@@ -1,0 +1,84 @@
+
+
+services:
+  # MySQL数据库
+  mysql:
+    image: mysql:8.0
+    container_name: xx-mysql-dev
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: xx_admin
+      MYSQL_USER: xx_user
+      MYSQL_PASSWORD: xx_pass123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_dev_data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - xx-dev-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Redis缓存
+  redis:
+    image: redis:7-alpine
+    container_name: xx-redis-dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    networks:
+      - xx-dev-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      timeout: 20s
+      retries: 10
+
+  # 后端服务（开发模式）
+  backend:
+    build:
+      context: ./xx-backend
+      dockerfile: Dockerfile.dev
+    container_name: xx-backend-dev
+    restart: unless-stopped
+    environment:
+      - APP_MODE=debug
+      - APP_PORT=8080
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=xx_user
+      - MYSQL_PASSWORD=xx_pass123
+      - MYSQL_DATABASE=xx_admin
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    volumes:
+      - ./xx-backend:/app
+      - /app/node_modules
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - xx-dev-network
+    command: ["go", "run", "main.go"]
+
+volumes:
+  mysql_dev_data:
+    driver: local
+  redis_dev_data:
+    driver: local
+
+networks:
+  xx-dev-network:
+    driver: bridge 

@@ -1,0 +1,34 @@
+
+
+services:
+  # MySQL数据库
+  mysql:
+    image: registry.openanolis.cn/openanolis/mysql:8.0.30-8.6
+    container_name: xx-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: 20021008wyj
+      MYSQL_DATABASE: xx
+      MYSQL_USER: root
+      MYSQL_PASSWORD: 20021008wyj
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  # Redis缓存
+  redis:
+    image: registry.openanolis.cn/openanolis/redis:5.0.3-8.6
+    container_name: xx-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local 
